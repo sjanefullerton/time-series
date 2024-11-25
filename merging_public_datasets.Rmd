@@ -1,0 +1,129 @@
+---
+title: "Untitled"
+author: "Sarah Fullerton"
+date: "2024-11-21"
+output: html_document
+---
+```{r}
+#install.packages("extrafont")
+library(extrafont)
+# Import fonts into R (this needs to be done only once)
+#font_import()
+```
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+library(readr)
+
+# Step 1: Load datasets
+disasters <- read_csv("clean climate data/natural_disaster_data.csv")
+spd <- read_csv("clean mental health data/years2004to2022_SPD_data_filtered.csv")
+yld <- read_csv("clean mental health data/age_gender_IHME.csv")
+
+# Step 2: Rename 'fy_declared' to 'year' in disasters
+disasters <- disasters %>%
+  rename(year = fy_declared)
+
+# Step 3: Add measure_name column to disasters dataset
+disasters <- disasters %>%
+  mutate(measure_name = "natural disasters")
+
+# Step 4: Add measure_name column to spd dataset
+spd <- spd %>%
+  mutate(measure_name = "spd")
+
+disasters <- disasters %>%
+  group_by(year) %>%
+  summarise(total_unique_disasters = n_distinct(disaster_number), .groups = 'drop')
+
+disasters <- disasters %>%
+  mutate(measure_name = "natural disasters")
+
+
+spd_filtered <- spd %>%
+  filter(GENDER == "Overall") %>%
+  select(measure_name, `Weighted Count`, year)
+
+spd_filtered <- spd_filtered %>%
+  rename(`SPD Count` = `Weighted Count`)
+
+yld_filtered <- yld |> 
+  rename(`YLD Count` = `val`)
+
+yld_filtered <- yld_filtered %>%
+  group_by(year, measure_name) %>%
+  summarise(`Total YLD Count` = sum(`YLD Count`, na.rm = TRUE)) 
+
+
+# Step 2: View the summary
+disasters
+spd_filtered
+yld_filtered
+
+merged_data <- disasters %>%
+  full_join(spd_filtered, by = "year") %>%
+  full_join(yld_filtered, by = "year") |>
+  mutate(measure_name = "natural disasters") |>
+  rename(`Disaster Count` = total_unique_disasters) |>
+  rename(`YLD count` = `Total YLD Count`)
+
+
+merged_data
+
+
+# Reshape the dataset
+merged_data_shaped <- merged_data %>%
+  select(year, `Disaster Count`, `SPD Count`, `Total YLD Count`) %>%
+  pivot_longer(cols = c(`Disaster Count`, `SPD Count`, `Total YLD Count`),
+               names_to = "measure_name",
+               values_to = "count") %>%
+  mutate(measure_name = case_when(
+    measure_name == "Disaster Count" ~ "Disaster Count",
+    measure_name == "SPD Count" ~ "SPD Count",
+    measure_name == "Total YLD Count" ~ "YLD Count"
+  )) %>%
+  filter(!is.na(count))  # Drop rows where 'count' is NA
+
+# View the result
+print(merged_data_shaped)
+
+write.csv(merged_data_shaped, "merged_datasets.csv", row.names = FALSE)
+```
+
+```{r}
+library(ggplot2)
+library(corrplot)
+# Set the font to Palatino in ggplot2
+theme_set(theme_gray(base_family = "Palatino"))
+numeric_data <- merged_data %>% select(where(is.numeric))  # Select numeric columns
+corr_matrix <- cor(numeric_data, use = "complete.obs")    # Generate correlation matrix
+#install.packages("GGally")
+library(GGally)
+
+# Use ggpairs to create a correlation plot
+correlation_ggpairs <- ggpairs(numeric_data)
+correlation_ggpairs
+ggsave("correlation_ggpairs.png", plot = correlation_ggpairs, dpi = 300, width = 8, height = 6)
+# Scatter plot to see relationships between measures
+ggplot(merged_data_shaped, aes(x = year, y = count, color = measure_name)) +
+  geom_point() +
+  labs(title = "Scatter plot of Count by Year", x = "Year", y = "Count") +
+  theme_minimal()
+numeric_data <- merged_data %>% select(where(is.numeric))
+
+# Create correlation plot using ggcorr
+correlation_ggcorr <- ggcorr(numeric_data, 
+                             method = c("pairwise", "pearson"),   # Choose correlation method: "pearson", "spearman", "kendall"
+                             label = TRUE,                       # Show correlation coefficients in squares
+                             label_alpha = TRUE,                 # Show correlation coefficients only where non-zero
+                             palette = "RdYlBu",                 # Color palette for correlations
+                             size = 5)                            # Size of the correlation labels
+
+# Print the plot
+print(correlation_ggcorr)
+
+# Save the plot to file with high resolution
+ggsave("correlation_ggcorr.png", plot = correlation_ggcorr, dpi = 300, width = 8, height = 6)
+```
